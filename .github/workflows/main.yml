@@ -1,0 +1,100 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  infra:
+    name: Infrastructure
+    runs-on: ubuntu-latest
+    if: false
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Toolchain
+        uses: ./.github/actions/setup
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate Environment
+        id: infra-auth
+        run: az login --identity
+
+      - name: Apply Infrastructure
+        id: infra-apply
+        run: task infra-apply
+
+      - name: Destroy Infrastructure
+        id: infra-destroy
+        run: task infra-destroy
+
+  app:
+    name: Application
+    runs-on: ubuntu-latest
+
+    env:
+      SKIP_DEPS_SETUP: true
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Toolchain
+        uses: ./.github/actions/setup
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build API Service
+        id: app-build-api
+        run: task app-build-api
+        env:
+          CI: false
+
+      - name: Build UI Service
+        id: app-build-ui
+        run: task app-build-ui
+        env:
+          CI: false
+
+  flow:
+    name: Flow
+    runs-on: ubuntu-latest
+    if: false
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Toolchain
+        uses: ./.github/actions/setup
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy Flows
+        id: flow-deploy
+        run: task flow-deploy
+
+      - name: Deploy Agent Flows
+        id: flow-deploy-agent
+        run: task flow-deploy-agent
+
+      - name: Deploy Evaluation Flows
+        id: flow-deploy-eval
+        run: task flow-deploy-eval
+
+      - name: Deploy ML Endpoints
+        id: flow-deploy-ml
+        run: task flow-deploy-

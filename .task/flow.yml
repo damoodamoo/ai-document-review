@@ -1,0 +1,115 @@
+version: "3.40.1"
+
+tasks:
+  flow-deploy:
+    desc: Deploy flows to AI Foundry.
+    silent: true
+    deps:
+      - task: deps-setup
+    aliases:
+      - fd
+    dir: flows
+    cmds:
+      - cmd: |
+          NAME_ARGUMENT={{if .FLOW_NAME}}"--set display_name="{{.FLOW_NAME}}{{else}}{{end}}
+          pushd ../infra > /dev/null
+          eval "$(terraform output -json | jq -r 'to_entries | .[] | "export ADR_" + (.key | ascii_upcase) + "=\"" + .value.value + "\"" ')"
+          popd > /dev/null
+
+          pfazure flow create \
+            --flow ai_doc_review \
+            --workspace-name "$ADR_AI_HUB_PROJECT_NAME" \
+            --resource-group "$ADR_RESOURCE_GROUP" \
+            $NAME_ARGUMENT
+
+  flow-deploy-agent:
+    desc: Deploy agent flows to AI Foundry.
+    silent: true
+    deps:
+      - task: deps-setup
+    aliases:
+      - fda
+    dir: flows
+    cmds:
+      - cmd: |
+          NAME_ARGUMENT={{if .FLOW_NAME}}"--set display_name="{{.FLOW_NAME}}{{else}}{{end}}
+          pushd ../infra > /dev/null
+          eval "$(terraform output -json | jq -r 'to_entries | .[] | "export ADR_" + (.key | ascii_upcase) + "=\"" + .value.value + "\"" ')"
+          popd > /dev/null
+
+          pfazure flow create \
+            --flow ai_doc_review/agent_template \
+            --workspace-name "$ADR_AI_HUB_PROJECT_NAME" \
+            --resource-group "$ADR_RESOURCE_GROUP" \
+            $NAME_ARGUMENT
+
+  flow-deploy-eval:
+    desc: Deploy evaluation flows to AI Foundry.
+    silent: true
+    deps:
+      - task: deps-setup
+    aliases:
+      - fde
+    dir: flows
+    cmds:
+      - cmd: |
+          NAME_ARGUMENT={{if .FLOW_NAME}}"--set display_name="{{.FLOW_NAME}}{{else}}{{end}}
+          pushd ../infra > /dev/null
+          eval "$(terraform output -json | jq -r 'to_entries | .[] | "export ADR_" + (.key | ascii_upcase) + "=\"" + .value.value + "\"" ')"
+          popd > /dev/null
+
+          pfazure flow create \
+            --flow ai_doc_review_eval \
+            --workspace-name "$ADR_AI_HUB_PROJECT_NAME" \
+            --resource-group "$ADR_RESOURCE_GROUP" \
+            --set type=evaluation
+            $NAME_ARGUMENT
+
+  flow-deploy-endpoint:
+    desc: Deploy to ML endpoints.
+    silent: true
+    deps:
+      - task: deps-setup
+    aliases:
+      - fde
+    dir: flows/ai_doc_review
+    cmds:
+      - cmd: |
+          pushd ../../infra > /dev/null
+          eval "$(terraform output -json | jq -r 'to_entries | .[] | "export ADR_" + (.key | ascii_upcase) + "=\"" + .value.value + "\"" ')"
+          popd > /dev/null
+
+          cp -r ../../common/ common/
+          cp ./deployment.yaml ./sub_deployment.yaml
+          export MODEL_VERSION=$(az ml model create --workspace-name "$ADR_AI_HUB_PROJECT_NAME" --resource-group "$ADR_RESOURCE_GROUP" --file model.yaml --query version -o tsv)
+
+          sed -i 's|VAR_MODEL_VERSION|'"$MODEL_VERSION"'|g' sub_deployment.yaml
+          sed -i 's|VAR_SUBSCRIPTION_ID|'"$ADR_SUBSCRIPTION_ID"'|g' sub_deployment.yaml
+          sed -i 's|VAR_RESOURCE_GROUP|'"$ADR_RESOURCE_GROUP"'|g' sub_deployment.yaml
+          sed -i 's|VAR_AI_HUB_PROJECT_NAME|'"$ADR_AI_HUB_PROJECT_NAME"'|g' sub_deployment.yaml
+          sed -i 's|VAR_ENDPOINT_NAME|'"$ADR_AML_ENDPOINT_NAME"'|g' sub_deployment.yaml
+          sed -i 's|VAR_AZURE_OPENAI_ENDPOINT|'"$ADR_AZURE_OPENAI_ENDPOINT"'|g' sub_deployment.yaml
+          sed -i 's|VAR_IDENTITY_CLIENT_ID|'"$ADR_IDENTITY_CLIENT_ID"'|g' sub_deployment.yaml
+          sed -i 's|VAR_DOCUMENT_INTELLIGENCE_ENDPOINT|'"$ADR_DOCUMENT_INTELLIGENCE_ENDPOINT"'|g' sub_deployment.yaml
+          sed -i 's|VAR_STORAGE_URL_PREFIX|'"$ADR_STORAGE_URL_PREFIX"'|g' sub_deployment.yaml
+
+          az ml online-deployment show \
+              --name ai-doc-review-deployment \
+              --endpoint-name "$ADR_AML_ENDPOINT_NAME" \
+              --workspace-name "$ADR_AI_HUB_PROJECT_NAME" \
+              --resource-group "$ADR_RESOURCE_GROUP" \
+          && az ml online-deployment update \
+              --file sub_deployment.yaml \
+              --workspace-name "$ADR_AI_HUB_PROJECT_NAME" \
+              --resource-group "$ADR_RESOURCE_GROUP" \
+          || az ml online-deployment create \
+              --file sub_deployment.yaml \
+              --workspace-name "$ADR_AI_HUB_PROJECT_NAME" \
+              --resource-group "$ADR_RESOURCE_GROUP" \
+              --all-traffic
+
+          az ml online-endpoint update \
+            --name $ADR_AML_ENDPOINT_NAME \
+            --traffic "ai-doc-review-deployment=100" \
+            --workspace-name "$ADR_AI_HUB_PROJECT_NAME" \
+            --resource-group "$ADR_RESOURCE_GROUP"
